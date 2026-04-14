@@ -72,7 +72,8 @@ def clean_dict_file(yaml_file):
     print('=' * 60)
     
     # 读取并处理文件
-    key_to_words = {}  # key -> set of words (去重)
+    # key -> dict of word -> freq_str or None
+    key_to_words = {}
     total_lines = 0
     processed_lines = 0
     skipped_lines = 0
@@ -90,13 +91,9 @@ def clean_dict_file(yaml_file):
                 continue
             
             # 处理转义空格
-            if '\\ ' in original_line:
-                line_tmp = original_line.replace('\\ ', '_ZFVimIM_space_')
-                parts = line_tmp.split()
-                words = [w.replace('_ZFVimIM_space_', ' ') for w in parts[1:]]
-            else:
-                parts = original_line.split()
-                words = parts[1:]
+            line_tmp = original_line.replace('\\ ', '_ZFVimIM_space_')
+            parts = line_tmp.split()
+            words = parts[1:]
             
             if len(parts) < 2:
                 skipped_lines += 1
@@ -111,15 +108,20 @@ def clean_dict_file(yaml_file):
                 skipped_lines += 1
                 continue
             
-            # 初始化编码对应的词集合（使用 set 自动去重）
+            # 初始化编码对应的词集合
             if key not in key_to_words:
-                key_to_words[key] = set()
+                key_to_words[key] = {}
             
             # 处理词
-            for word in words:
-                word = word.strip()
-                if not word:
+            for word_part in words:
+                word_part = word_part.strip()
+                if not word_part:
                     continue
+                if ':' in word_part:
+                    word_raw, freq_str = word_part.rsplit(':', 1)
+                else:
+                    word_raw, freq_str = word_part, None
+                word = word_raw.replace('_ZFVimIM_space_', ' ')
                 
                 # 检查词是否规范
                 if not is_valid_word(word):
@@ -129,9 +131,19 @@ def clean_dict_file(yaml_file):
                 # 去重：如果词已存在，跳过
                 if word in key_to_words[key]:
                     duplicate_words += 1
+                    existing_freq = key_to_words[key][word]
+                    if freq_str is not None:
+                        if existing_freq is None:
+                            key_to_words[key][word] = freq_str
+                        else:
+                            try:
+                                if int(freq_str) > int(existing_freq):
+                                    key_to_words[key][word] = freq_str
+                            except ValueError:
+                                pass
                     continue
                 
-                key_to_words[key].add(word)
+                key_to_words[key][word] = freq_str
     
     print(f'读取完成: 总行数 {total_lines}, 处理行数 {processed_lines}')
     print(f'跳过行数: {skipped_lines}')
@@ -153,13 +165,26 @@ def clean_dict_file(yaml_file):
     # 写入整理后的文件
     print('正在写入整理后的文件...')
     with open(yaml_file, 'w', encoding='utf-8') as f:
-        for key, words_set in sorted_keys:
-            if not words_set:
+        for key, words_map in sorted_keys:
+            if not words_map:
                 continue
-            # 将 set 转为列表并排序（保持一致性）
-            words_list = sorted(list(words_set))
+            # 按频率降序、词语升序排序（无频率视为 0）
+            words_list = []
+            for word, freq_str in words_map.items():
+                try:
+                    freq = int(freq_str) if freq_str is not None else 0
+                except ValueError:
+                    freq = 0
+                words_list.append((word, freq, freq_str))
+            words_list.sort(key=lambda x: (-x[1], x[0]))
             # 转义空格
-            escaped_words = [w.replace(' ', '\\ ') for w in words_list]
+            escaped_words = []
+            for word, _freq, freq_str in words_list:
+                escaped_word = word.replace(' ', '\\ ')
+                if freq_str is not None:
+                    escaped_words.append(f'{escaped_word}:{freq_str}')
+                else:
+                    escaped_words.append(escaped_word)
             f.write(f'{key} {" ".join(escaped_words)}\n')
     
     stats = {
@@ -203,4 +228,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

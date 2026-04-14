@@ -34,8 +34,8 @@ return {
 1. 按 `;;` 启动输入法
 2. 输入编码（SBZR模式）
 3. 选择候选词：
-   - 输入4码后，可以使用 `a/e/u/i/o` 快速选择第2-6个候选词
-   - `0-9` 选择，`<Space>` 选第一个，`,`/`.` 翻页
+   - 使用数字键选择候选词，行为对齐当前 Rime 配置
+   - `<Space>` 选第一个，`1-5` 选第 2-6 个，`,`/`.` 翻页
 4. 按 `;;` 再次切换关闭
 
 ## 核心功能
@@ -99,9 +99,9 @@ return {
 插件的文件存储路径如下：
 
 - **数据库文件**：`~/.config/nvim/sbzr.nvim.im.db/` 目录
-  - 例如：`~/.config/nvim/sbzr.nvim.im.db/sbzr.db`
+  - 例如：`~/.config/nvim/sbzr.nvim.im.db/base.dict.db`
 - **词库文件（YAML）**：`~/.local/share/nvim/lazy/sbzr.nvim.im/dict/` 目录
-  - 例如：`~/.local/share/nvim/lazy/sbzr.nvim.im/dict/sbzr.yaml`
+  - 例如：`~/.local/share/nvim/lazy/sbzr.nvim.im/dict/base.dict.yaml`
 - **缓存文件**：`~/.vim_cache/sbzr_nvim_im/` 目录
 - **频率文件**：`~/.local/share/nvim/sbzr_nvim_im_word_freq.txt`
 
@@ -173,7 +173,7 @@ ceshi	测试	测时
 
 ```vim
 " 检查词库文件是否存在
-:lua print(vim.fn.filereadable(vim.fn.stdpath("data") .. "/lazy/sbzr.nvim.im/dict/sbzr.yaml"))
+:lua print(vim.fn.filereadable(vim.fn.stdpath("data") .. "/lazy/sbzr.nvim.im/dict/base.dict.yaml"))
 
 " 查看错误信息
 :messages

@@ -30,6 +30,99 @@ function! s:ZFVimIM_getDbDir()
     return dbDir
 endfunction
 
+" Resolve plugin root directory, preferring user override.
+function! s:ZFVimIM_pluginDir()
+    let overrideDir = get(g:, 'ZFVimIM_plugin_dir', '')
+    if !empty(overrideDir) && isdirectory(overrideDir . '/dict')
+        return overrideDir
+    endif
+
+    let sfileDir = expand('<sfile>:p:h:h')
+    if isdirectory(sfileDir . '/dict')
+        return sfileDir
+    endif
+
+    return stdpath('data') . '/lazy/sbzr.nvim.im'
+endfunction
+
+function! s:ZFVimIM_defaultYamlPath()
+    return s:ZFVimIM_pluginDir() . '/dict/base.dict.yaml'
+endfunction
+
+function! s:ZFVimIM_defaultDictHeader(yamlPath) abort
+    let dictName = substitute(fnamemodify(a:yamlPath, ':t:r'), '\.dict$', '', '')
+    return [
+                \ '# Rime dictionary',
+                \ '# encoding: utf-8',
+                \ '---',
+                \ 'name: ' . dictName,
+                \ 'version: "0.1"',
+                \ 'sort: by_weight',
+                \ 'use_preset_vocabulary: false',
+                \ 'columns:',
+                \ '  - text',
+                \ '  - code',
+                \ '  - weight',
+                \ '...',
+                \ '',
+                \ ]
+endfunction
+
+function! s:ZFVimIM_readRimeDict(yamlPath) abort
+    let header = []
+    let entries = {}
+    if !filereadable(a:yamlPath)
+        return {'header': s:ZFVimIM_defaultDictHeader(a:yamlPath), 'entries': entries}
+    endif
+
+    for line in readfile(a:yamlPath)
+        let parts = split(line, '\t')
+        if len(parts) >= 2 && parts[1] =~# '^[a-z]\+$'
+            let word = parts[0]
+            let encoding = parts[1]
+            let weight = (len(parts) >= 3 && parts[2] =~# '^\d\+$') ? str2nr(parts[2]) : 0
+            if !has_key(entries, encoding)
+                let entries[encoding] = []
+            endif
+            let found = 0
+            for item in entries[encoding]
+                if item['word'] ==# word
+                    if weight > item['weight']
+                        let item['weight'] = weight
+                    endif
+                    let found = 1
+                    break
+                endif
+            endfor
+            if !found
+                call add(entries[encoding], {'word': word, 'weight': weight})
+            endif
+        else
+            call add(header, line)
+        endif
+    endfor
+
+    if empty(header)
+        let header = s:ZFVimIM_defaultDictHeader(a:yamlPath)
+    endif
+    return {'header': header, 'entries': entries}
+endfunction
+
+function! s:ZFVimIM_writeRimeDict(yamlPath, header, entries) abort
+    let output = copy(a:header)
+    if !empty(output) && output[-1] !=# ''
+        call add(output, '')
+    endif
+    for encoding in sort(keys(a:entries))
+        let items = copy(a:entries[encoding])
+        call sort(items, {a, b -> a['weight'] == b['weight'] ? (a['word'] > b['word'] ? 1 : -1) : b['weight'] - a['weight']})
+        for item in items
+            call add(output, item['word'] . "\t" . encoding . "\t" . item['weight'])
+        endfor
+    endfor
+    call writefile(output, a:yamlPath)
+endfunction
+
 " Get database file path from YAML file path
 " Database files are stored in ~/.config/nvim/sbzr.nvim.im.db/
 function! s:ZFVimIM_getDbPath(yamlPath)
@@ -79,15 +172,8 @@ function! s:ZFVimIM_getYamlPath(dbPath)
         let yamlName = yamlName . '.yaml'
     endif
     
-    " Try plugin dict directory - try <sfile> first (actual source directory)
-    let pluginDir = ''
-    let sfileDir = expand('<sfile>:p:h:h')
-    if isdirectory(sfileDir . '/dict')
-        let pluginDir = sfileDir
-    else
-        " Fallback to stdpath (LazyVim installed location)
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
-    endif
+    " Try plugin dict directory - prefer user override
+    let pluginDir = s:ZFVimIM_pluginDir()
     let dictDir = pluginDir . '/dict'
     let yamlPath = dictDir . '/' . yamlName
     
@@ -96,8 +182,8 @@ function! s:ZFVimIM_getYamlPath(dbPath)
         return yamlPath
     endif
     
-    " Use sbzr.yaml as default
-    let yamlPath = dictDir . '/sbzr.yaml'
+    " Use base.dict.yaml as default
+    let yamlPath = dictDir . '/base.dict.yaml'
     if filereadable(yamlPath)
         return yamlPath
     endif
@@ -110,20 +196,12 @@ endfunction
 function! s:ZFVimIM_autoLoadDict()
     let dictPath = ''
     
-    " Get plugin directory - try <sfile> first (actual source directory)
-    let pluginDir = ''
-    let sfileDir = expand('<sfile>:p:h:h')
-    if isdirectory(sfileDir . '/dict') && filereadable(sfileDir . '/dict/sbzr.yaml')
-        " Found dict directory with sbzr.yaml in source directory
-        let pluginDir = sfileDir
-    else
-        " Fallback to stdpath (LazyVim installed location)
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
-    endif
+    " Get plugin directory - prefer user override
+    let pluginDir = s:ZFVimIM_pluginDir()
     let dictDir = pluginDir . '/dict'
     
-    " Use sbzr.yaml as the only dictionary
-    let defaultDict = dictDir . '/sbzr.yaml'
+    " Use base.dict.yaml as the only dictionary
+    let defaultDict = dictDir . '/base.dict.yaml'
     
     " Use sbzr dictionary
     if filereadable(defaultDict)
@@ -246,7 +324,7 @@ function! s:ZFVimIM_importDb(yamlPath, dbPath, force)
     endif
     
     " Get script path
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/misc')
         let pluginDir = sfileDir
@@ -2168,15 +2246,15 @@ function! s:addWord(dbId, key, word)
         let dictPath = db['implData']['dictPath']
     else
         " Try to get from autoLoadDict logic
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+        let pluginDir = s:ZFVimIM_pluginDir()
         let sfileDir = expand('<sfile>:p:h:h')
         if isdirectory(sfileDir . '/dict')
             let pluginDir = sfileDir
         endif
         let dictDir = pluginDir . '/dict'
         
-        " Use sbzr.yaml as the only dictionary
-        let dictPath = dictDir . '/sbzr.yaml'
+        " Use base.dict.yaml as the only dictionary
+        let dictPath = dictDir . '/base.dict.yaml'
     endif
     
     if !empty(dictPath)
@@ -2219,7 +2297,7 @@ function! s:asyncSaveDict(db, dictPath)
         endif
         
         " Get script path
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+        let pluginDir = s:ZFVimIM_pluginDir()
         let sfileDir = expand('<sfile>:p:h:h')
         if isdirectory(sfileDir . '/misc')
             let pluginDir = sfileDir
@@ -2285,7 +2363,7 @@ function! s:removeWord(dbId, key, word)
         let dictPath = db['implData']['dictPath']
     else
         " Try to get from autoLoadDict logic
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+        let pluginDir = s:ZFVimIM_pluginDir()
         let sfileDir = expand('<sfile>:p:h:h')
         if isdirectory(sfileDir . '/dict')
             let pluginDir = sfileDir
@@ -2293,8 +2371,8 @@ function! s:removeWord(dbId, key, word)
         let dictDir = pluginDir . '/dict'
         
         " Default dictionary is default.yaml
-        " Use sbzr.yaml as the only dictionary
-        let dictPath = dictDir . '/sbzr.yaml'
+        " Use base.dict.yaml as the only dictionary
+        let dictPath = dictDir . '/base.dict.yaml'
     endif
     
     " Remove the word
@@ -2759,15 +2837,15 @@ function! s:updateWordFrequencyInDb(key, word, increment)
     " Update word frequency in database
     " Get database file path
     let dictPath = ''
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict')
         let pluginDir = sfileDir
     endif
     let dictDir = pluginDir . '/dict'
     
-    " Use sbzr.yaml as the only dictionary
-    let dictPath = dictDir . '/sbzr.yaml'
+    " Use base.dict.yaml as the only dictionary
+    let dictPath = dictDir . '/base.dict.yaml'
     
     if empty(dictPath)
         return
@@ -3288,15 +3366,15 @@ augroup END
 function! s:cleanupDictionaryOnExit()
     " Get dictionary file path
     let dictPath = ''
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict')
         let pluginDir = sfileDir
     endif
     let dictDir = pluginDir . '/dict'
     
-        " Use sbzr.yaml as the only dictionary
-        let dictPath = dictDir . '/sbzr.yaml'
+        " Use base.dict.yaml as the only dictionary
+        let dictPath = dictDir . '/base.dict.yaml'
     
     if empty(dictPath) || !filereadable(dictPath)
         return
@@ -3505,15 +3583,15 @@ function! ZFVimIM_cleanupDictionary()
         endif
     else
         " Try to get from autoLoadDict logic
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+        let pluginDir = s:ZFVimIM_pluginDir()
         let sfileDir = expand('<sfile>:p:h:h')
         if isdirectory(sfileDir . '/dict')
             let pluginDir = sfileDir
         endif
         let dictDir = pluginDir . '/dict'
         
-        " Use sbzr.yaml as the only dictionary
-        let dictPath = dictDir . '/sbzr.yaml'
+        " Use base.dict.yaml as the only dictionary
+        let dictPath = dictDir . '/base.dict.yaml'
     endif
     
     " Skip if dictionary file doesn't exist or is not readable
@@ -3523,13 +3601,13 @@ function! ZFVimIM_cleanupDictionary()
     endif
     
     " Get script path
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict') && isdirectory(sfileDir . '/misc')
         let pluginDir = sfileDir
     else
         if !isdirectory(pluginDir . '/misc')
-            let altPath = stdpath('config') . '/lazy/sbzr.nvim.im'
+            let altPath = s:ZFVimIM_pluginDir()
             if isdirectory(altPath . '/misc')
                 let pluginDir = altPath
             endif
@@ -3576,13 +3654,13 @@ function! ZFVimIM_refreshAll()
     echom '[sbzr.nvim.im] 开始刷新：清理字典 + 清除缓存 + 重新加载...'
     
     " Step 1: Cleanup dictionary file (if cleanup script exists)
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict') && isdirectory(sfileDir . '/misc')
         let pluginDir = sfileDir
     else
         if !isdirectory(pluginDir . '/misc')
-            let altPath = stdpath('config') . '/lazy/sbzr.nvim.im'
+            let altPath = s:ZFVimIM_pluginDir()
             if isdirectory(altPath . '/misc')
                 let pluginDir = altPath
             endif
@@ -3606,8 +3684,8 @@ function! ZFVimIM_refreshAll()
             else
                 " Try to get from autoLoadDict logic
                 let dictDir = pluginDir . '/dict'
-                " Use sbzr.yaml as the only dictionary
-                let dictPath = dictDir . '/sbzr.yaml'
+                " Use base.dict.yaml as the only dictionary
+                let dictPath = dictDir . '/base.dict.yaml'
             endif
             
             if !empty(dictPath) && filereadable(dictPath)
@@ -3681,7 +3759,7 @@ function! ZFVimIM_importTxtToDb(...)
     
     " Get YAML file path (use argument if provided, otherwise use default)
     let yamlPath = ''
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict')
         let pluginDir = sfileDir
@@ -3698,8 +3776,8 @@ function! ZFVimIM_importTxtToDb(...)
         endif
     else
         " Use default logic
-        " Use sbzr.yaml as the only dictionary
-        let yamlPath = dictDir . '/sbzr.yaml'
+        " Use base.dict.yaml as the only dictionary
+        let yamlPath = dictDir . '/base.dict.yaml'
     endif
     
     " Skip if TXT file doesn't exist
@@ -3779,15 +3857,15 @@ function! ZFVimIM_exportDbToTxt()
     
     " Get database file path
     let dbPath = ''
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict')
         let pluginDir = sfileDir
     endif
     let dictDir = pluginDir . '/dict'
     
-    " Use sbzr.yaml as the only dictionary
-    let yamlPath = dictDir . '/sbzr.yaml'
+    " Use base.dict.yaml as the only dictionary
+    let yamlPath = dictDir . '/base.dict.yaml'
     let dbPath = s:ZFVimIM_getDbPath(yamlPath)
     else
         let yamlPath = dictDir . '/default.yaml'
@@ -3853,15 +3931,15 @@ function! ZFVimIM_syncTxtToDb()
     
     " Get dictionary file path (TXT file)
     let yamlPath = ''
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict')
         let pluginDir = sfileDir
     endif
     let dictDir = pluginDir . '/dict'
     
-    " Use sbzr.yaml as the only dictionary
-    let yamlPath = dictDir . '/sbzr.yaml'
+    " Use base.dict.yaml as the only dictionary
+    let yamlPath = dictDir . '/base.dict.yaml'
     
     " Skip if TXT file doesn't exist
     if empty(yamlPath) || !filereadable(yamlPath)
@@ -3870,13 +3948,13 @@ function! ZFVimIM_syncTxtToDb()
     endif
     
     " Get script path
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict') && isdirectory(sfileDir . '/misc')
         let pluginDir = sfileDir
     else
         if !isdirectory(pluginDir . '/misc')
-            let altPath = stdpath('config') . '/lazy/sbzr.nvim.im'
+            let altPath = s:ZFVimIM_pluginDir()
             if isdirectory(altPath . '/misc')
                 let pluginDir = altPath
             endif
@@ -3957,14 +4035,14 @@ function! ZFVimIM_showInfo()
     if !exists('g:ZFVimIM_db') || empty(g:ZFVimIM_db)
         echo "❌ 未加载任何词库"
         echo ""
-        echo "词库: sbzr.yaml (固定)"
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+        echo "词库: base.dict.yaml (固定)"
+        let pluginDir = s:ZFVimIM_pluginDir()
         let sfileDir = expand('<sfile>:p:h:h')
         if isdirectory(sfileDir . '/dict')
             let pluginDir = sfileDir
         endif
         let dictDir = pluginDir . '/dict'
-        let defaultDict = dictDir . '/sbzr.yaml'
+        let defaultDict = dictDir . '/base.dict.yaml'
         if filereadable(defaultDict)
             echo "  词库文件: " . defaultDict
             let mtime = getftime(defaultDict)
@@ -4098,15 +4176,15 @@ function! ZFVimIM_showInfo()
     
     " Fallback: try to get from default dict name
     if empty(yamlPath)
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+        let pluginDir = s:ZFVimIM_pluginDir()
         let sfileDir = expand('<sfile>:p:h:h')
         if isdirectory(sfileDir . '/dict')
             let pluginDir = sfileDir
         endif
         let dictDir = pluginDir . '/dict'
         
-        " Use sbzr.yaml as the only dictionary
-        let yamlPath = dictDir . '/sbzr.yaml'
+        " Use base.dict.yaml as the only dictionary
+        let yamlPath = dictDir . '/base.dict.yaml'
     endif
     
     if empty(yamlPath) || !filereadable(yamlPath)
@@ -4115,7 +4193,7 @@ function! ZFVimIM_showInfo()
     endif
     
     " Get script path
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/misc')
         let pluginDir = sfileDir
@@ -4171,7 +4249,7 @@ endfunction
 function! ZFVimIM_batchAddWords(...)
     " Get current dictionary path
     let dictPath = ''
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict')
         let pluginDir = sfileDir
@@ -4179,8 +4257,8 @@ function! ZFVimIM_batchAddWords(...)
     let dictDir = pluginDir . '/dict'
     
     " Determine dictionary path
-    " Use sbzr.yaml as the only dictionary
-    let dictPath = dictDir . '/sbzr.yaml'
+    " Use base.dict.yaml as the only dictionary
+    let dictPath = dictDir . '/base.dict.yaml'
     
     " Check if dictionary file exists
     if !filereadable(dictPath)
@@ -4249,7 +4327,7 @@ function! s:ZFVimIM_processBatchAdd()
         if bufname =~# '\[ZFVimIM 批量添加\]'
             let dictName = substitute(bufname, '.*\[ZFVimIM 批量添加\]\s*', '', '')
             if !empty(dictName)
-                let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+                let pluginDir = s:ZFVimIM_pluginDir()
                 let sfileDir = expand('<sfile>:p:h:h')
                 if isdirectory(sfileDir . '/dict')
                     let pluginDir = sfileDir
@@ -4261,15 +4339,15 @@ function! s:ZFVimIM_processBatchAdd()
         
         " If still empty, use default dictionary
         if empty(dictPath)
-            let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+            let pluginDir = s:ZFVimIM_pluginDir()
             let sfileDir = expand('<sfile>:p:h:h')
             if isdirectory(sfileDir . '/dict')
                 let pluginDir = sfileDir
             endif
             let dictDir = pluginDir . '/dict'
             
-            " Use sbzr.yaml as the only dictionary
-            let dictPath = dictDir . '/sbzr.yaml'
+            " Use base.dict.yaml as the only dictionary
+            let dictPath = dictDir . '/base.dict.yaml'
         endif
     endif
     
@@ -4337,24 +4415,8 @@ function! s:ZFVimIM_processBatchAdd()
         return
     endif
     
-    " Read existing entries from YAML
-    let existingEntries = {}
-    let yamlLines = readfile(yamlPath)
-    for line in yamlLines
-        let line = substitute(line, '^\s*', '', '')
-        let line = substitute(line, '\s*$', '', '')
-        if empty(line) || line[0] ==# '#'
-            continue
-        endif
-        let parts = split(line, '\t')
-        if len(parts) >= 2
-            let encoding = parts[0]
-            if !has_key(existingEntries, encoding)
-                let existingEntries[encoding] = []
-            endif
-            call extend(existingEntries[encoding], parts[1:])
-        endif
-    endfor
+    let dictData = s:ZFVimIM_readRimeDict(yamlPath)
+    let existingEntries = dictData['entries']
     
     " Merge new entries (only add new words, avoid duplicates)
     let newEntries = []
@@ -4363,22 +4425,20 @@ function! s:ZFVimIM_processBatchAdd()
             let existingEntries[entry['encoding']] = []
         endif
         " Check if word already exists
-        if index(existingEntries[entry['encoding']], entry['word']) < 0
-            call add(existingEntries[entry['encoding']], entry['word'])
+        let existsWord = 0
+        for item in existingEntries[entry['encoding']]
+            if item['word'] ==# entry['word']
+                let existsWord = 1
+                break
+            endif
+        endfor
+        if !existsWord
+            call add(existingEntries[entry['encoding']], {'word': entry['word'], 'weight': 2000})
             call add(newEntries, entry)
         endif
     endfor
-    
-    " Write back to YAML file
-    let output = []
-    for encoding in sort(keys(existingEntries))
-        let words = existingEntries[encoding]
-        if !empty(words)
-            call add(output, encoding . "\t" . join(words, "\t"))
-        endif
-    endfor
-    
-    call writefile(output, yamlPath)
+
+    call s:ZFVimIM_writeRimeDict(yamlPath, dictData['header'], existingEntries)
     
     if !empty(newEntries)
         echom '[sbzr.nvim.im] 已保存 ' . len(newEntries) . ' 个新条目到 YAML: ' . fnamemodify(yamlPath, ':t')
@@ -4395,7 +4455,7 @@ function! s:ZFVimIM_processBatchAdd()
         endif
         
         " Get script path
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+        let pluginDir = s:ZFVimIM_pluginDir()
         let sfileDir = expand('<sfile>:p:h:h')
         if isdirectory(sfileDir . '/misc')
             let pluginDir = sfileDir
@@ -4452,7 +4512,7 @@ endfunction
 function! ZFVimIM_editDict()
     " Get current dictionary path
     let dictPath = ''
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict')
         let pluginDir = sfileDir
@@ -4460,8 +4520,8 @@ function! ZFVimIM_editDict()
     let dictDir = pluginDir . '/dict'
     
     " Determine dictionary path
-    " Use sbzr.yaml as the only dictionary
-    let dictPath = dictDir . '/sbzr.yaml'
+    " Use base.dict.yaml as the only dictionary
+    let dictPath = dictDir . '/base.dict.yaml'
     
     " Get database file path
     let dbPath = s:ZFVimIM_getDbPath(dictPath)
@@ -4489,10 +4549,10 @@ function! ZFVimIM_editDict()
     
     " Add instructions
     call setline(1, '# ZFVimIM 词库编辑')
-    call setline(2, '# 格式: 编码 候选词1 候选词2 ...')
+    call setline(2, '# 格式: 词<Tab>编码<Tab>权重')
     call setline(3, '# 例如:')
-    call setline(4, '# nihao 你好 你号')
-    call setline(5, '# ceshi 测试 测时')
+    call setline(4, '# 你好<Tab>nihao<Tab>2000')
+    call setline(5, '# 测试<Tab>ceshi<Tab>1800')
     call setline(6, '#')
     call setline(7, '# 删除行即可删除该编码的所有词')
     call setline(8, '# 每次使用 :w 保存时会即时导入到词库并重新加载输入法')
@@ -4563,7 +4623,7 @@ function! s:ZFVimIM_processEditDict()
         if bufname =~# '\[ZFVimIM 词库编辑\]'
             let dictName = substitute(bufname, '.*\[ZFVimIM 词库编辑\]\s*', '', '')
             if !empty(dictName)
-                let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+                let pluginDir = s:ZFVimIM_pluginDir()
                 let sfileDir = expand('<sfile>:p:h:h')
                 if isdirectory(sfileDir . '/dict')
                     let pluginDir = sfileDir
@@ -4576,15 +4636,15 @@ function! s:ZFVimIM_processEditDict()
         
         " If still empty, use default dictionary
         if empty(dictPath)
-            let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+            let pluginDir = s:ZFVimIM_pluginDir()
             let sfileDir = expand('<sfile>:p:h:h')
             if isdirectory(sfileDir . '/dict')
                 let pluginDir = sfileDir
             endif
             let dictDir = pluginDir . '/dict'
             
-            " Use sbzr.yaml as the only dictionary
-            let dictPath = dictDir . '/sbzr.yaml'
+            " Use base.dict.yaml as the only dictionary
+            let dictPath = dictDir . '/base.dict.yaml'
             let dbPath = s:ZFVimIM_getDbPath(dictPath)
         endif
     endif
@@ -4609,38 +4669,22 @@ function! s:ZFVimIM_processEditDict()
             continue
         endif
         
-        " Parse format: encoding word1 word2 ... (space separated)
-        " Handle escaped spaces: replace \  with placeholder first
-        let lineTmp = substitute(line, '\\ ', '_ZFVimIM_space_', 'g')
-        let parts = split(lineTmp, ' ')
+        let parts = split(line, '\t')
         if len(parts) < 2
             continue
         endif
-        
-        " Restore spaces in words
-        let words = []
-        for i in range(1, len(parts) - 1)
-            call add(words, substitute(parts[i], '_ZFVimIM_space_', ' ', 'g'))
-        endfor
-        call add(words, substitute(parts[len(parts) - 1], '_ZFVimIM_space_', ' ', 'g'))
-        
-        let encoding = substitute(parts[0], '_ZFVimIM_space_', ' ', 'g')
+
+        let word = parts[0]
+        let encoding = parts[1]
+        let weight = (len(parts) >= 3 && parts[2] =~# '^\d\+$') ? str2nr(parts[2]) : 0
         
         " Validate encoding (should be lowercase letters)
         if encoding !~# '^[a-z]\+$'
             continue
         endif
         
-        " Validate words (should contain Chinese characters)
-        let validWords = []
-        for word in words
-            if word =~# '[\u4e00-\u9fff]'
-                call add(validWords, word)
-            endif
-        endfor
-        
-        if !empty(validWords)
-            call add(entries, {'encoding': encoding, 'words': validWords})
+        if !empty(word)
+            call add(entries, {'encoding': encoding, 'word': word, 'weight': weight})
         endif
     endfor
     
@@ -4654,16 +4698,10 @@ function! s:ZFVimIM_processEditDict()
     let yamlPath = dictPath
     let tmpYamlPath = yamlPath . '.tmp'
     
-    let output = []
+    let output = s:ZFVimIM_defaultDictHeader(tmpYamlPath)
     for entry in entries
-        " Escape spaces in words
-        let escapedWords = []
-        for word in entry['words']
-            call add(escapedWords, substitute(word, ' ', '\\ ', 'g'))
-        endfor
-        call add(output, entry['encoding'] . ' ' . join(escapedWords, ' '))
+        call add(output, entry['word'] . "\t" . entry['encoding'] . "\t" . entry['weight'])
     endfor
-    
     call writefile(output, tmpYamlPath)
     
     echom '[sbzr.nvim.im] 已保存 ' . len(entries) . ' 个条目到临时文件'
@@ -4677,13 +4715,13 @@ function! s:ZFVimIM_processEditDict()
     endif
     
     " Get script path
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/misc')
         let pluginDir = sfileDir
     else
         if !isdirectory(pluginDir . '/misc')
-            let altPath = stdpath('config') . '/lazy/sbzr.nvim.im'
+            let altPath = s:ZFVimIM_pluginDir()
             if isdirectory(altPath . '/misc')
                 let pluginDir = altPath
             endif
@@ -4760,7 +4798,7 @@ function! ZFVimIM_backupDict(...)
         endif
     else
         " Use default dict directory
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+        let pluginDir = s:ZFVimIM_pluginDir()
         let sfileDir = expand('<sfile>:p:h:h')
         if isdirectory(sfileDir . '/dict')
             let pluginDir = sfileDir
@@ -4770,15 +4808,15 @@ function! ZFVimIM_backupDict(...)
     
     " Get database file path
     let dbPath = ''
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict')
         let pluginDir = sfileDir
     endif
     let dictDir = pluginDir . '/dict'
     
-    " Use sbzr.yaml as the only dictionary
-    let yamlPath = dictDir . '/sbzr.yaml'
+    " Use base.dict.yaml as the only dictionary
+    let yamlPath = dictDir . '/base.dict.yaml'
     let dbPath = s:ZFVimIM_getDbPath(yamlPath)
     else
         let yamlPath = dictDir . '/default.yaml'

@@ -3,8 +3,7 @@ if exists('g:loaded_ZFVimIM_sbzr')
 endif
 let g:loaded_ZFVimIM_sbzr = 1
 
-let s:sbzr_labels = ['', 'a', 'e', 'u', 'i', 'o']
-let s:sbzr_label_map = {'a': 2, 'e': 3, 'u': 4, 'i': 5, 'o': 6}
+let s:sbzr_labels = ['', '1', '2', '3', '4', '5']
 let s:sbzr_seen_freq = {}
 let s:sbzr_seen_counter = 0
 let s:sbzr_label_pending = {}
@@ -25,188 +24,6 @@ function! s:apply_sbzr_settings() abort
 endfunction
 
 function! ZFVimIM_sbzr_key(key)
-    let state = ZFVimIME_state()
-    let candidates = get(state, 'list', [])
-    
-    " 检查当前 keyboard 长度（通过获取当前行的输入）
-    let cursor_positions = getpos('.')
-    let current_line = getline(cursor_positions[1])
-    let start_column = cursor_positions[2]
-    let seamless_column = 1
-    let use_state = 0
-    let state = ZFVimIME_state()
-    let seamless_pos = get(state, 'seamlessPos', [])
-    if len(seamless_pos) >= 4
-                \&& seamless_pos[0] == cursor_positions[0]
-                \&& seamless_pos[1] == cursor_positions[1]
-                \&& seamless_pos[3] == cursor_positions[3]
-        let candidate_column = seamless_pos[2]
-        let len_to_cursor = cursor_positions[2] - candidate_column
-        if len_to_cursor >= 0
-            let snip = strpart(current_line, candidate_column - 1, len_to_cursor)
-            if empty(snip)
-                let seamless_column = candidate_column
-                let use_state = 1
-            else
-                let valid = 1
-                for c in split(snip, '\zs')
-                    if c !~# '^[a-z]$'
-                        let valid = 0
-                        break
-                    endif
-                endfor
-                if valid
-                    let seamless_column = candidate_column
-                    let use_state = 1
-                endif
-            endif
-        endif
-    endif
-    if seamless_column <= 0 || !use_state
-        " 如果无法获取，尝试从当前行计算
-        let seamless_column = start_column
-        while seamless_column > 1 && current_line[(seamless_column-1) - 1] =~# '^[a-z]$'
-            let seamless_column -= 1
-        endwhile
-    endif
-    let keyboard_len = start_column - seamless_column
-    let current_key = ''
-    if keyboard_len > 0
-        let current_key = strpart(current_line, seamless_column - 1, keyboard_len)
-    endif
-
-    let is_first_code = 0
-    let prev_char_is_letter = 0
-    if keyboard_len == 0
-        if start_column <= 1
-            let is_first_code = 1
-        else
-            let prev_char = current_line[start_column - 2]
-            if prev_char !~# '^[a-z]$'
-                let is_first_code = 1
-            else
-                let prev_char_is_letter = 1
-            endif
-        endif
-    elseif start_column > 1
-        let prev_char = current_line[start_column - 2]
-        if prev_char =~# '^[a-z]$'
-            let prev_char_is_letter = 1
-        endif
-    endif
-
-    if a:key ==# 'e' && is_first_code
-        if exists('*ZFVimIME_stop')
-            call ZFVimIME_stop()
-        endif
-        if exists('*ZFVimIM_core_api')
-            call ZFVimIM_core_api('float_close')
-        endif
-        return ''
-    endif
-    
-    " 如果 3 码唯一匹配，继续输入时自动上屏并追加新字符
-    if keyboard_len == 3
-        let curKey = get(state, 'key', '')
-        if len(curKey) == keyboard_len
-                    \ && len(candidates) == 1
-                    \ && !get(candidates[0], 'hint', 0)
-                    \ && !s:sbzr_hasLongerKey(curKey)
-            return ZFVimIME_labelWithTail(1, a:key)
-        endif
-    endif
-
-    " 如果输入第5个字符，且前4个字符有候选词，需要特殊处理
-    if keyboard_len == 4
-        " 获取前4个字符的编码
-        let prefixKey = strpart(current_line, seamless_column - 1, 4)
-        " 先检查完整的5个字符是否有匹配
-        let fullKey = prefixKey . a:key
-        let fullCandidates = ZFVimIM_complete(fullKey, {
-                    \ 'match': -2000,
-                    \ 'sentence': 0,
-                    \ 'crossDb': 0,
-                    \ 'predict': 0,
-                    \ })
-        
-        " 如果完整的5个字符有匹配，正常输入，不自动上屏
-        if !empty(fullCandidates)
-            " 正常输入第5个字符，让系统处理完整的5个字符匹配
-            return ZFVimIME_input(a:key)
-        endif
-        
-        " 如果完整的5个字符没有匹配，才考虑自动上屏
-        let prefixCandidates = ZFVimIM_complete(prefixKey, {
-                    \ 'match': -2000,
-                    \ 'sentence': 0,
-                    \ 'crossDb': 0,
-                    \ 'predict': 0,
-                    \ })
-        
-        " 如果第5个字符是标签键，且前4个字符有候选词，让标签键用于选择候选词
-        if has_key(s:sbzr_label_map, a:key) && !empty(prefixCandidates)
-            " 直接使用标签键选择前4个字符的候选词
-            let pageSize = len(get(g:, 'ZFVimIM_labelList', s:sbzr_labels))
-            if pageSize <= 0
-                let pageSize = len(s:sbzr_labels)
-            endif
-            let labelPos = s:sbzr_label_map[a:key]
-            let candidateIdx = labelPos - 1  " 转换为0-based索引
-            if candidateIdx < len(prefixCandidates)
-                " 选择对应的候选词
-                return ZFVimIME_label(labelPos)
-            endif
-        endif
-        
-        " 如果第5个字符不是标签键，且前4个字符有候选词，自动上屏第一个候选词，然后继续输入第5个字符
-        if !has_key(s:sbzr_label_map, a:key)
-                    \ && !empty(prefixCandidates)
-                    \ && !s:sbzr_hasLongerKey(prefixKey)
-            " 选择第一个候选词并追加第5个字符
-            return ZFVimIME_labelWithTail(1, a:key)
-        endif
-    endif
-    
-    if has_key(s:sbzr_label_map, a:key)
-        let nextKey = current_key . a:key
-        let nextHasExact = s:sbzr_hasExactKey(nextKey)
-        let nextHasLonger = s:sbzr_hasLongerKey(nextKey)
-        if nextHasExact || nextHasLonger
-            if !nextHasExact && !empty(candidates)
-                let pageSize = len(get(g:, 'ZFVimIM_labelList', s:sbzr_labels))
-                if pageSize <= 0
-                    let pageSize = len(s:sbzr_labels)
-                endif
-                let pageIndex = max([0, get(state, 'page', 0)])
-                let startIdx = pageIndex * pageSize
-                let labelPos = s:sbzr_label_map[a:key]
-                let candidateIdx = startIdx + (labelPos - 1)
-                if candidateIdx < len(candidates)
-                    let selected = candidates[candidateIdx]
-                    let s:sbzr_label_pending = {
-                                \ 'key' : nextKey,
-                                \ 'word' : get(selected, 'word', ''),
-                                \ 'dbId' : get(selected, 'dbId', 0),
-                                \ }
-                endif
-            endif
-            return ZFVimIME_input(a:key)
-        endif
-        if !empty(candidates)
-            let pageSize = len(get(g:, 'ZFVimIM_labelList', s:sbzr_labels))
-            if pageSize <= 0
-                let pageSize = len(s:sbzr_labels)
-            endif
-            let pageIndex = max([0, get(state, 'page', 0)])
-            let startIdx = pageIndex * pageSize
-            let labelPos = s:sbzr_label_map[a:key]
-            let candidateIdx = startIdx + (labelPos - 1)
-            if startIdx < len(candidates) && candidateIdx < len(candidates) && (labelPos - 1) < pageSize
-                return ZFVimIME_label(labelPos)
-            endif
-        endif
-        return ZFVimIME_input(a:key)
-    endif
     return ZFVimIME_input(a:key)
 endfunction
 
@@ -224,6 +41,15 @@ function! s:apply_sbzr_keymaps()
     for key in split('abcdefghijklmnopqrstuvwxyz', '\zs')
         execute 'lnoremap <buffer><expr><silent> ' . key . ' ZFVimIM_sbzr_key("' . key . '")'
     endfor
+    " 对齐当前 Rime：Space 选第一个，1-5 选第 2-6 个候选
+    execute 'lnoremap <buffer><expr><silent> 1 ZFVimIME_label(2, "1")'
+    execute 'lnoremap <buffer><expr><silent> 2 ZFVimIME_label(3, "2")'
+    execute 'lnoremap <buffer><expr><silent> 3 ZFVimIME_label(4, "3")'
+    execute 'lnoremap <buffer><expr><silent> 4 ZFVimIME_label(5, "4")'
+    execute 'lnoremap <buffer><expr><silent> 5 ZFVimIME_label(6, "5")'
+    execute 'lnoremap <buffer><expr><silent> <Tab> ZFVimIME_tabNext("\<tab>")'
+    execute 'lnoremap <buffer><expr><silent> <S-Tab> ZFVimIME_tabPrev("\<s-tab>")'
+    execute 'lnoremap <buffer><expr><silent> <Space> ZFVimIME_space("\<space>")'
     " 映射翻页键：, 和 .
     execute 'lnoremap <buffer><expr><silent> , ZFVimIM_sbzr_pageUp(",")'
     execute 'lnoremap <buffer><expr><silent> . ZFVimIM_sbzr_pageDown(".")'
@@ -364,6 +190,9 @@ function! s:sbzrHintItems(key, limit) abort
     if idx < 0
         return []
     endif
+    let bestWord = ''
+    let bestKey = ''
+    let bestLen = 0
     while idx < len(bucket) && len(ret) < limit
         let item = ZFVimIM_dbItemDecode(bucket[idx])
         let k = get(item, 'key', '')
@@ -374,20 +203,34 @@ function! s:sbzrHintItems(key, limit) abort
             let wordList = get(item, 'wordList', [])
             if !empty(wordList)
                 let word = wordList[0]
-                call add(ret, {
-                            \ 'dbId' : get(db, 'dbId', 0),
-                            \ 'len' : len(a:key),
-                            \ 'word' : word,
-                            \ 'displayWord' : word,
-                            \ 'key' : k,
-                            \ 'type' : 'match',
-                            \ 'hint' : 1,
-                            \ })
-                break
+                for w in wordList
+                    if strchars(w) < strchars(word)
+                        let word = w
+                    endif
+                endfor
+                if bestLen == 0 || strchars(word) < bestLen
+                    let bestWord = word
+                    let bestKey = k
+                    let bestLen = strchars(word)
+                    if bestLen == 1
+                        break
+                    endif
+                endif
             endif
         endif
         let idx += 1
     endwhile
+    if !empty(bestWord)
+        call add(ret, {
+                    \ 'dbId' : get(db, 'dbId', 0),
+                    \ 'len' : len(a:key),
+                    \ 'word' : bestWord,
+                    \ 'displayWord' : bestWord,
+                    \ 'key' : bestKey,
+                    \ 'type' : 'match',
+                    \ 'hint' : 1,
+                    \ })
+    endif
     return ret
 endfunction
 
@@ -461,12 +304,7 @@ function! s:hook_update_candidates() abort
 endfunction
 
 function! s:hook_tab_move(direction) abort
-    if a:direction > 0
-        call ZFVimIME_chooseIndex(1)
-    else
-        call ZFVimIME_chooseIndex(-1)
-    endif
-    return 1
+    return 0
 endfunction
 
 function! s:hook_record_word_usage(key, word) abort
@@ -524,7 +362,7 @@ function! s:hook_complete_sort_frequency_priority(ret) abort
 endfunction
 
 function! s:hook_complete_force_combo(key, ret) abort
-    return len(a:key) == 4
+    return 0
 endfunction
 
 function! s:register_hooks() abort

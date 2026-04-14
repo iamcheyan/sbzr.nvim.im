@@ -28,25 +28,32 @@ def parse_line(line):
         return None
     
     # 处理转义的空格
-    if '\\\\ ' in line:
-        parts = line.replace('\\\\ ', '_ZFVimIM_space_').split()
-        words = [w.replace('_ZFVimIM_space_', ' ') for w in parts[1:]]
-    else:
-        parts = line.split()
-        words = parts[1:]
+    line_tmp = line.replace('\\\\ ', '_ZFVimIM_space_')
+    parts = line_tmp.split()
+    words = parts[1:]
     
     if len(parts) < 2:
         return None
     
     key = parts[0]
     
-    # 过滤空词
-    words = [w.strip() for w in words if w.strip()]
+    # 解析词和频率
+    parsed_words = []
+    for word_part in words:
+        word_part = word_part.strip()
+        if not word_part:
+            continue
+        if ':' in word_part:
+            word_raw, freq_str = word_part.rsplit(':', 1)
+        else:
+            word_raw, freq_str = word_part, None
+        word = word_raw.replace('_ZFVimIM_space_', ' ')
+        parsed_words.append((word, freq_str))
     
-    if not words:
+    if not parsed_words:
         return None
     
-    return (key, words)
+    return (key, parsed_words)
 
 
 def get_existing_data(conn):
@@ -136,11 +143,17 @@ def sync_txt_to_db(txt_file, db_file=None):
             # 检查每个词是否已存在，按原始顺序设置词频
             # 根据词的数量动态计算词频：第一个词频率最高（等于词数），依次递减
             word_count = len(words)
-            for idx, word in enumerate(words):
+            for idx, (word, freq_str) in enumerate(words):
                 if (key, word) not in existing_data:
                     # 按原始顺序设置词频：第一个词频率 = 词数，依次递减到 1
                     # 例如：10个词 -> 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
-                    frequency = word_count - idx
+                    if freq_str is None:
+                        frequency = word_count - idx
+                    else:
+                        try:
+                            frequency = int(freq_str)
+                        except ValueError:
+                            frequency = word_count - idx
                     new_data.append((key, word, frequency))
                     # 添加到已存在集合中，避免同一批次重复
                     existing_data.add((key, word))
@@ -209,4 +222,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

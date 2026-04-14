@@ -73,7 +73,7 @@ if !exists('g:ZFVimIM_crossDbPos')
     let g:ZFVimIM_crossDbPos = 5
 endif
 
-" Dictionary is fixed to sbzr.yaml
+" Dictionary is fixed to base.dict.yaml
 
 if !exists('g:ZFVimIM_cachePath')
     let g:ZFVimIM_cachePath = get(g:, 'zf_vim_cache_path', $HOME . '/.vim_cache') . '/sbzr_nvim_im'
@@ -305,6 +305,21 @@ endfunction
 if !exists('g:ZFVimIM_dbEditApplyFlag')
     let g:ZFVimIM_dbEditApplyFlag = 0
 endif
+
+" Resolve plugin root directory, preferring user override.
+function! s:ZFVimIM_pluginDir()
+    let overrideDir = get(g:, 'ZFVimIM_plugin_dir', '')
+    if !empty(overrideDir) && isdirectory(overrideDir . '/dict')
+        return overrideDir
+    endif
+
+    let sfileDir = expand('<sfile>:p:h:h')
+    if isdirectory(sfileDir . '/dict')
+        return sfileDir
+    endif
+
+    return stdpath('data') . '/lazy/sbzr.nvim.im'
+endfunction
 function! ZFVimIM_wordAdd(db, word, key)
     call s:dbEdit(a:db, a:word, a:key, 'add')
 endfunction
@@ -320,19 +335,12 @@ endfunction
 function! IMAdd(bang, db, key, word)
     " Get dictionary file path (TXT file)
     let dictPath = ''
-    " Try <sfile> first (actual source directory)
-    let pluginDir = ''
-    let sfileDir = expand('<sfile>:p:h:h')
-    if isdirectory(sfileDir . '/dict')
-        let pluginDir = sfileDir
-    else
-        " Fallback to stdpath (LazyVim installed location)
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
-    endif
+    " Try plugin dict directory - prefer user override
+    let pluginDir = s:ZFVimIM_pluginDir()
     let dictDir = pluginDir . '/dict'
     
-    " Use sbzr.yaml as the only dictionary
-    let dictPath = dictDir . '/sbzr.yaml'
+    " Use base.dict.yaml as the only dictionary
+    let dictPath = dictDir . '/base.dict.yaml'
     
     if empty(dictPath) || !filereadable(dictPath)
         echom '[sbzr.nvim.im] Error: Dictionary file not found: ' . dictPath
@@ -370,13 +378,13 @@ function! IMAdd(bang, db, key, word)
     endif
     
     " Get script path
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/dict') && isdirectory(sfileDir . '/misc')
         let pluginDir = sfileDir
     else
         if !isdirectory(pluginDir . '/misc')
-            let altPath = stdpath('config') . '/lazy/sbzr.nvim.im'
+            let altPath = s:ZFVimIM_pluginDir()
             if isdirectory(altPath . '/misc')
                 let pluginDir = altPath
             endif
@@ -464,15 +472,11 @@ function! IMRemove(bang, db, word, ...)
         let dictPath = a:db['implData']['dictPath']
     else
         " Try to get from configuration
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
-        let sfileDir = expand('<sfile>:p:h:h')
-        if isdirectory(sfileDir . '/dict')
-            let pluginDir = sfileDir
-        endif
+        let pluginDir = s:ZFVimIM_pluginDir()
         let dictDir = pluginDir . '/dict'
         
-        " Use sbzr.yaml as the only dictionary
-        let dictPath = dictDir . '/sbzr.yaml'
+        " Use base.dict.yaml as the only dictionary
+        let dictPath = dictDir . '/base.dict.yaml'
     endif
     
     if empty(dictPath) || !filereadable(dictPath)
@@ -617,13 +621,13 @@ function! IMRemove(bang, db, word, ...)
             let pythonCmd = executable('python3') ? 'python3' : 'python'
             if executable(pythonCmd)
                 " Get script path
-                let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+                let pluginDir = s:ZFVimIM_pluginDir()
                 let sfileDir = expand('<sfile>:p:h:h')
                 if isdirectory(sfileDir . '/dict') && isdirectory(sfileDir . '/misc')
                     let pluginDir = sfileDir
                 else
                     if !isdirectory(pluginDir . '/misc')
-                        let altPath = stdpath('config') . '/lazy/sbzr.nvim.im'
+                        let altPath = s:ZFVimIM_pluginDir()
                         if isdirectory(altPath . '/misc')
                             let pluginDir = altPath
                         endif
@@ -1472,13 +1476,13 @@ function! s:dbLoad_tryUsePythonScript(dbMap, dbFile, cacheFile, dbCountFile)
     endif
     
     " Check if Python script exists
-    let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+    let pluginDir = s:ZFVimIM_pluginDir()
     let sfileDir = expand('<sfile>:p:h:h')
     if isdirectory(sfileDir . '/misc')
         let pluginDir = sfileDir
     else
         if !isdirectory(pluginDir . '/misc')
-            let altPath = stdpath('config') . '/lazy/sbzr.nvim.im'
+            let altPath = s:ZFVimIM_pluginDir()
             if isdirectory(altPath . '/misc')
                 let pluginDir = altPath
             endif
@@ -1637,7 +1641,7 @@ function! s:dbSave(db, dbFile, ...)
     " For very large files, use Python script for faster saving
     if totalEntries > 50000 && (executable('python') || executable('python3'))
         let pythonCmd = executable('python3') ? 'python3' : 'python'
-        let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+        let pluginDir = s:ZFVimIM_pluginDir()
         let sfileDir = expand('<sfile>:p:h:h')
         if isdirectory(sfileDir . '/misc')
             let pluginDir = sfileDir
@@ -1693,7 +1697,7 @@ function! s:dbSave(db, dbFile, ...)
         if dbPath !=# a:dbFile && filereadable(dbPath)
             " Sync TXT to database (only new entries)
             let pythonCmd = executable('python3') ? 'python3' : 'python'
-            let pluginDir = stdpath('data') . '/lazy/sbzr.nvim.im'
+            let pluginDir = s:ZFVimIM_pluginDir()
             let sfileDir = expand('<sfile>:p:h:h')
             if isdirectory(sfileDir . '/misc')
                 let pluginDir = sfileDir
