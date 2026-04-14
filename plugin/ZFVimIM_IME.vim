@@ -808,6 +808,17 @@ function! ZFVimIME_updatePage()
     " This function is called via feedkeys to defer updateCandidates execution
     if mode() == 'i' && s:floatVisible()
         call s:updateCandidatesDebounced()
+        if exists('s:float_page_target')
+            if s:float_page_target ==# 'first'
+                let s:float_index = 0
+            elseif s:float_page_target ==# 'last'
+                let s:float_index = max([len(s:float_items) - 1, 0])
+            endif
+            unlet s:float_page_target
+            if !empty(s:float_items)
+                call s:floatRender(s:float_items)
+            endif
+        endif
     endif
     return ''
 endfunction
@@ -828,7 +839,7 @@ function! ZFVimIME_tabNext(...)
     if ZFVimIM_callHookBool('tab_move', [1])
         return ''
     endif
-    call s:floatMoveWithPaging(1)
+    call s:floatMoveWithPagingDeferred(1)
     return ''
 endfunction
 
@@ -840,7 +851,7 @@ function! ZFVimIME_tabPrev(...)
     if ZFVimIM_callHookBool('tab_move', [-1])
         return ''
     endif
-    call s:floatMoveWithPaging(-1)
+    call s:floatMoveWithPagingDeferred(-1)
     return ''
 endfunction
 
@@ -1757,6 +1768,39 @@ function! s:floatMoveWithPaging(delta)
     endif
     let s:float_index = max([len(s:curPage()) - 1, 0])
     call s:floatRender(s:curPage())
+endfunction
+
+function! s:floatMoveWithPagingDeferred(delta)
+    if empty(s:match_list) || empty(s:float_items)
+        return
+    endif
+
+    let pageSize = &pumheight > 0 ? &pumheight : len(s:float_items)
+    if pageSize <= 0
+        return
+    endif
+    let totalPages = (len(s:match_list) - 1) / pageSize
+
+    if a:delta > 0
+        if s:float_index + 1 < len(s:float_items)
+            call s:floatMove(1)
+            return
+        endif
+    else
+        if s:float_index > 0
+            call s:floatMove(-1)
+            return
+        endif
+    endif
+
+    let s:pageup_pagedown = a:delta
+    if a:delta > 0 && s:page >= totalPages
+        let s:pageup_pagedown = -(totalPages > 0 ? totalPages : 0)
+    elseif a:delta < 0 && s:page <= 0
+        let s:pageup_pagedown = totalPages > 0 ? totalPages : 0
+    endif
+    let s:float_page_target = a:delta > 0 ? 'first' : 'last'
+    silent call feedkeys("\<c-r>=ZFVimIME_updatePage()\<cr>", 'nt')
 endfunction
 
 function! s:chooseItem(item)
