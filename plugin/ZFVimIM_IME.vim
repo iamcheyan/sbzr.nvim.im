@@ -45,8 +45,24 @@ function! s:ZFVimIM_pluginDir()
     return stdpath('data') . '/lazy/sbzr.nvim.im'
 endfunction
 
+function! s:ZFVimIM_configuredYamlPath() abort
+    let configuredPath = get(g:, 'ZFVimIM_dict_path', get(g:, 'ZFVimIM_yaml_path', ''))
+    if empty(configuredPath)
+        return ''
+    endif
+    return fnamemodify(expand(configuredPath), ':p')
+endfunction
+
 function! s:ZFVimIM_defaultYamlPath()
     return s:ZFVimIM_pluginDir() . '/dict/base.dict.yaml'
+endfunction
+
+function! s:ZFVimIM_resolveYamlPath() abort
+    let configuredPath = s:ZFVimIM_configuredYamlPath()
+    if !empty(configuredPath)
+        return configuredPath
+    endif
+    return s:ZFVimIM_defaultYamlPath()
 endfunction
 
 function! s:ZFVimIM_defaultDictHeader(yamlPath) abort
@@ -172,18 +188,14 @@ function! s:ZFVimIM_getYamlPath(dbPath)
         let yamlName = yamlName . '.yaml'
     endif
     
-    " Try plugin dict directory - prefer user override
-    let pluginDir = s:ZFVimIM_pluginDir()
-    let dictDir = pluginDir . '/dict'
-    let yamlPath = dictDir . '/' . yamlName
+    let yamlPath = fnamemodify(s:ZFVimIM_resolveYamlPath(), ':h') . '/' . yamlName
     
     " Check if file exists
     if filereadable(yamlPath)
         return yamlPath
     endif
     
-    " Use base.dict.yaml as default
-    let yamlPath = dictDir . '/base.dict.yaml'
+    let yamlPath = s:ZFVimIM_resolveYamlPath()
     if filereadable(yamlPath)
         return yamlPath
     endif
@@ -196,12 +208,7 @@ endfunction
 function! s:ZFVimIM_autoLoadDict()
     let dictPath = ''
     
-    " Get plugin directory - prefer user override
-    let pluginDir = s:ZFVimIM_pluginDir()
-    let dictDir = pluginDir . '/dict'
-    
-    " Use base.dict.yaml as the only dictionary
-    let defaultDict = dictDir . '/base.dict.yaml'
+    let defaultDict = s:ZFVimIM_resolveYamlPath()
     
     " Use sbzr dictionary
     if filereadable(defaultDict)
@@ -821,7 +828,7 @@ function! ZFVimIME_tabNext(...)
     if ZFVimIM_callHookBool('tab_move', [1])
         return ''
     endif
-    call s:floatMove(1)
+    call s:floatMoveWithPaging(1)
     return ''
 endfunction
 
@@ -833,7 +840,7 @@ function! ZFVimIME_tabPrev(...)
     if ZFVimIM_callHookBool('tab_move', [-1])
         return ''
     endif
-    call s:floatMove(-1)
+    call s:floatMoveWithPaging(-1)
     return ''
 endfunction
 
@@ -1713,6 +1720,45 @@ function! s:floatMove(delta)
     endif
 endfunction
 
+function! s:floatMoveWithPaging(delta)
+    if empty(s:match_list) || empty(s:float_items)
+        return
+    endif
+
+    let pageSize = &pumheight > 0 ? &pumheight : len(s:float_items)
+    if pageSize <= 0
+        return
+    endif
+    let totalPages = (len(s:match_list) - 1) / pageSize
+
+    if a:delta > 0
+        if s:float_index + 1 < len(s:float_items)
+            call s:floatMove(1)
+            return
+        endif
+        if s:page < totalPages
+            let s:page += 1
+        else
+            let s:page = 0
+        endif
+        let s:float_index = 0
+        call s:floatRender(s:curPage())
+        return
+    endif
+
+    if s:float_index > 0
+        call s:floatMove(-1)
+        return
+    endif
+    if s:page > 0
+        let s:page -= 1
+    else
+        let s:page = totalPages
+    endif
+    let s:float_index = max([len(s:curPage()) - 1, 0])
+    call s:floatRender(s:curPage())
+endfunction
+
 function! s:chooseItem(item)
     let left = strpart(s:keyboard, a:item['len'])
     let bsCount = strchars(s:keyboard)
@@ -2254,7 +2300,7 @@ function! s:addWord(dbId, key, word)
         let dictDir = pluginDir . '/dict'
         
         " Use base.dict.yaml as the only dictionary
-        let dictPath = dictDir . '/base.dict.yaml'
+        let dictPath = s:ZFVimIM_resolveYamlPath()
     endif
     
     if !empty(dictPath)
@@ -2372,7 +2418,7 @@ function! s:removeWord(dbId, key, word)
         
         " Default dictionary is default.yaml
         " Use base.dict.yaml as the only dictionary
-        let dictPath = dictDir . '/base.dict.yaml'
+        let dictPath = s:ZFVimIM_resolveYamlPath()
     endif
     
     " Remove the word
@@ -2845,7 +2891,7 @@ function! s:updateWordFrequencyInDb(key, word, increment)
     let dictDir = pluginDir . '/dict'
     
     " Use base.dict.yaml as the only dictionary
-    let dictPath = dictDir . '/base.dict.yaml'
+    let dictPath = s:ZFVimIM_resolveYamlPath()
     
     if empty(dictPath)
         return
@@ -3374,7 +3420,7 @@ function! s:cleanupDictionaryOnExit()
     let dictDir = pluginDir . '/dict'
     
         " Use base.dict.yaml as the only dictionary
-        let dictPath = dictDir . '/base.dict.yaml'
+        let dictPath = s:ZFVimIM_resolveYamlPath()
     
     if empty(dictPath) || !filereadable(dictPath)
         return
@@ -3591,7 +3637,7 @@ function! ZFVimIM_cleanupDictionary()
         let dictDir = pluginDir . '/dict'
         
         " Use base.dict.yaml as the only dictionary
-        let dictPath = dictDir . '/base.dict.yaml'
+        let dictPath = s:ZFVimIM_resolveYamlPath()
     endif
     
     " Skip if dictionary file doesn't exist or is not readable
@@ -3685,7 +3731,7 @@ function! ZFVimIM_refreshAll()
                 " Try to get from autoLoadDict logic
                 let dictDir = pluginDir . '/dict'
                 " Use base.dict.yaml as the only dictionary
-                let dictPath = dictDir . '/base.dict.yaml'
+                let dictPath = s:ZFVimIM_resolveYamlPath()
             endif
             
             if !empty(dictPath) && filereadable(dictPath)
@@ -3777,7 +3823,7 @@ function! ZFVimIM_importTxtToDb(...)
     else
         " Use default logic
         " Use base.dict.yaml as the only dictionary
-        let yamlPath = dictDir . '/base.dict.yaml'
+        let yamlPath = s:ZFVimIM_resolveYamlPath()
     endif
     
     " Skip if TXT file doesn't exist
@@ -3865,7 +3911,7 @@ function! ZFVimIM_exportDbToTxt()
     let dictDir = pluginDir . '/dict'
     
     " Use base.dict.yaml as the only dictionary
-    let yamlPath = dictDir . '/base.dict.yaml'
+    let yamlPath = s:ZFVimIM_resolveYamlPath()
     let dbPath = s:ZFVimIM_getDbPath(yamlPath)
     else
         let yamlPath = dictDir . '/default.yaml'
@@ -3939,7 +3985,7 @@ function! ZFVimIM_syncTxtToDb()
     let dictDir = pluginDir . '/dict'
     
     " Use base.dict.yaml as the only dictionary
-    let yamlPath = dictDir . '/base.dict.yaml'
+    let yamlPath = s:ZFVimIM_resolveYamlPath()
     
     " Skip if TXT file doesn't exist
     if empty(yamlPath) || !filereadable(yamlPath)
@@ -4035,14 +4081,8 @@ function! ZFVimIM_showInfo()
     if !exists('g:ZFVimIM_db') || empty(g:ZFVimIM_db)
         echo "❌ 未加载任何词库"
         echo ""
-        echo "词库: base.dict.yaml (固定)"
-        let pluginDir = s:ZFVimIM_pluginDir()
-        let sfileDir = expand('<sfile>:p:h:h')
-        if isdirectory(sfileDir . '/dict')
-            let pluginDir = sfileDir
-        endif
-        let dictDir = pluginDir . '/dict'
-        let defaultDict = dictDir . '/base.dict.yaml'
+        echo "词库: " . fnamemodify(s:ZFVimIM_resolveYamlPath(), ':t')
+        let defaultDict = s:ZFVimIM_resolveYamlPath()
         if filereadable(defaultDict)
             echo "  词库文件: " . defaultDict
             let mtime = getftime(defaultDict)
@@ -4184,7 +4224,7 @@ function! ZFVimIM_showInfo()
         let dictDir = pluginDir . '/dict'
         
         " Use base.dict.yaml as the only dictionary
-        let yamlPath = dictDir . '/base.dict.yaml'
+        let yamlPath = s:ZFVimIM_resolveYamlPath()
     endif
     
     if empty(yamlPath) || !filereadable(yamlPath)
@@ -4258,7 +4298,7 @@ function! ZFVimIM_batchAddWords(...)
     
     " Determine dictionary path
     " Use base.dict.yaml as the only dictionary
-    let dictPath = dictDir . '/base.dict.yaml'
+    let dictPath = s:ZFVimIM_resolveYamlPath()
     
     " Check if dictionary file exists
     if !filereadable(dictPath)
@@ -4347,7 +4387,7 @@ function! s:ZFVimIM_processBatchAdd()
             let dictDir = pluginDir . '/dict'
             
             " Use base.dict.yaml as the only dictionary
-            let dictPath = dictDir . '/base.dict.yaml'
+            let dictPath = s:ZFVimIM_resolveYamlPath()
         endif
     endif
     
@@ -4521,7 +4561,7 @@ function! ZFVimIM_editDict()
     
     " Determine dictionary path
     " Use base.dict.yaml as the only dictionary
-    let dictPath = dictDir . '/base.dict.yaml'
+    let dictPath = s:ZFVimIM_resolveYamlPath()
     
     " Get database file path
     let dbPath = s:ZFVimIM_getDbPath(dictPath)
@@ -4644,7 +4684,7 @@ function! s:ZFVimIM_processEditDict()
             let dictDir = pluginDir . '/dict'
             
             " Use base.dict.yaml as the only dictionary
-            let dictPath = dictDir . '/base.dict.yaml'
+            let dictPath = s:ZFVimIM_resolveYamlPath()
             let dbPath = s:ZFVimIM_getDbPath(dictPath)
         endif
     endif
@@ -4816,7 +4856,7 @@ function! ZFVimIM_backupDict(...)
     let dictDir = pluginDir . '/dict'
     
     " Use base.dict.yaml as the only dictionary
-    let yamlPath = dictDir . '/base.dict.yaml'
+    let yamlPath = s:ZFVimIM_resolveYamlPath()
     let dbPath = s:ZFVimIM_getDbPath(yamlPath)
     else
         let yamlPath = dictDir . '/default.yaml'

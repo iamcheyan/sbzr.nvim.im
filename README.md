@@ -25,6 +25,9 @@ return {
   {
     "iamcheyan/sbzr.nvim.im",
     lazy = false,
+    init = function()
+      vim.g.ZFVimIM_dict_path = vim.fn.expand("~/.dotfiles/rime/sbzr.chrome.extension/dicts/base.dict.yaml")
+    end,
   },
 }
 ```
@@ -102,6 +105,8 @@ return {
   - 例如：`~/.config/nvim/sbzr.nvim.im.db/base.dict.db`
 - **词库文件（YAML）**：`~/.local/share/nvim/lazy/sbzr.nvim.im/dict/` 目录
   - 例如：`~/.local/share/nvim/lazy/sbzr.nvim.im/dict/base.dict.yaml`
+- **外部词库文件**：可通过 `vim.g.ZFVimIM_dict_path` 指向任意 YAML 词库
+  - 例如：`~/.dotfiles/rime/sbzr.chrome.extension/dicts/base.dict.yaml`
 - **缓存文件**：`~/.vim_cache/sbzr_nvim_im/` 目录
 - **频率文件**：`~/.local/share/nvim/sbzr_nvim_im_word_freq.txt`
 
@@ -174,6 +179,9 @@ ceshi	测试	测时
 ```vim
 " 检查词库文件是否存在
 :lua print(vim.fn.filereadable(vim.fn.stdpath("data") .. "/lazy/sbzr.nvim.im/dict/base.dict.yaml"))
+
+" 如果配置了外部词库，检查外部路径
+:lua print(vim.fn.filereadable(vim.fn.expand("~/.dotfiles/rime/sbzr.chrome.extension/dicts/base.dict.yaml")))
 
 " 查看错误信息
 :messages

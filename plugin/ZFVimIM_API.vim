@@ -73,7 +73,7 @@ if !exists('g:ZFVimIM_crossDbPos')
     let g:ZFVimIM_crossDbPos = 5
 endif
 
-" Dictionary is fixed to base.dict.yaml
+" Dictionary defaults to base.dict.yaml, but can be overridden by configuration.
 
 if !exists('g:ZFVimIM_cachePath')
     let g:ZFVimIM_cachePath = get(g:, 'zf_vim_cache_path', $HOME . '/.vim_cache') . '/sbzr_nvim_im'
@@ -320,6 +320,14 @@ function! s:ZFVimIM_pluginDir()
 
     return stdpath('data') . '/lazy/sbzr.nvim.im'
 endfunction
+
+function! s:ZFVimIM_resolveYamlPath() abort
+    let configuredPath = get(g:, 'ZFVimIM_dict_path', get(g:, 'ZFVimIM_yaml_path', ''))
+    if !empty(configuredPath)
+        return fnamemodify(expand(configuredPath), ':p')
+    endif
+    return s:ZFVimIM_pluginDir() . '/dict/base.dict.yaml'
+endfunction
 function! ZFVimIM_wordAdd(db, word, key)
     call s:dbEdit(a:db, a:word, a:key, 'add')
 endfunction
@@ -336,11 +344,7 @@ function! IMAdd(bang, db, key, word)
     " Get dictionary file path (TXT file)
     let dictPath = ''
     " Try plugin dict directory - prefer user override
-    let pluginDir = s:ZFVimIM_pluginDir()
-    let dictDir = pluginDir . '/dict'
-    
-    " Use base.dict.yaml as the only dictionary
-    let dictPath = dictDir . '/base.dict.yaml'
+    let dictPath = s:ZFVimIM_resolveYamlPath()
     
     if empty(dictPath) || !filereadable(dictPath)
         echom '[sbzr.nvim.im] Error: Dictionary file not found: ' . dictPath
@@ -472,11 +476,7 @@ function! IMRemove(bang, db, word, ...)
         let dictPath = a:db['implData']['dictPath']
     else
         " Try to get from configuration
-        let pluginDir = s:ZFVimIM_pluginDir()
-        let dictDir = pluginDir . '/dict'
-        
-        " Use base.dict.yaml as the only dictionary
-        let dictPath = dictDir . '/base.dict.yaml'
+        let dictPath = s:ZFVimIM_resolveYamlPath()
     endif
     
     if empty(dictPath) || !filereadable(dictPath)

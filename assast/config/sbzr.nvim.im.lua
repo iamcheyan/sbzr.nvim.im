@@ -6,6 +6,8 @@ return {
   {
     "iamcheyan/sbzr.nvim.im",
     lazy = false,
+    init = function()
+      vim.g.ZFVimIM_dict_path = vim.fn.expand("~/.dotfiles/rime/sbzr.chrome.extension/dicts/base.dict.yaml")
+    end,
   },
 }
-

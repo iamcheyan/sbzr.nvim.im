@@ -3,7 +3,7 @@ if exists('g:loaded_ZFVimIM_sbzr')
 endif
 let g:loaded_ZFVimIM_sbzr = 1
 
-let s:sbzr_labels = ['', '1', '2', '3', '4', '5']
+let s:sbzr_labels = ['', '', '', '', '', '']
 let s:sbzr_seen_freq = {}
 let s:sbzr_seen_counter = 0
 let s:sbzr_label_pending = {}
@@ -41,12 +41,13 @@ function! s:apply_sbzr_keymaps()
     for key in split('abcdefghijklmnopqrstuvwxyz', '\zs')
         execute 'lnoremap <buffer><expr><silent> ' . key . ' ZFVimIM_sbzr_key("' . key . '")'
     endfor
-    " 对齐当前 Rime：Space 选第一个，1-5 选第 2-6 个候选
-    execute 'lnoremap <buffer><expr><silent> 1 ZFVimIME_label(2, "1")'
-    execute 'lnoremap <buffer><expr><silent> 2 ZFVimIME_label(3, "2")'
-    execute 'lnoremap <buffer><expr><silent> 3 ZFVimIME_label(4, "3")'
-    execute 'lnoremap <buffer><expr><silent> 4 ZFVimIME_label(5, "4")'
-    execute 'lnoremap <buffer><expr><silent> 5 ZFVimIME_label(6, "5")'
+    " 数字键直接选择第 1-6 个候选；Space 仍然确认第一个候选
+    execute 'lnoremap <buffer><expr><silent> 1 ZFVimIME_label(1, "1")'
+    execute 'lnoremap <buffer><expr><silent> 2 ZFVimIME_label(2, "2")'
+    execute 'lnoremap <buffer><expr><silent> 3 ZFVimIME_label(3, "3")'
+    execute 'lnoremap <buffer><expr><silent> 4 ZFVimIME_label(4, "4")'
+    execute 'lnoremap <buffer><expr><silent> 5 ZFVimIME_label(5, "5")'
+    execute 'lnoremap <buffer><expr><silent> 6 ZFVimIME_label(6, "6")'
     execute 'lnoremap <buffer><expr><silent> <Tab> ZFVimIME_tabNext("\<tab>")'
     execute 'lnoremap <buffer><expr><silent> <S-Tab> ZFVimIME_tabPrev("\<s-tab>")'
     execute 'lnoremap <buffer><expr><silent> <Space> ZFVimIME_space("\<space>")'
