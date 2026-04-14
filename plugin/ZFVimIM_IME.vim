@@ -1732,42 +1732,7 @@ function! s:floatMove(delta)
 endfunction
 
 function! s:floatMoveWithPaging(delta)
-    if empty(s:match_list) || empty(s:float_items)
-        return
-    endif
-
-    let pageSize = &pumheight > 0 ? &pumheight : len(s:float_items)
-    if pageSize <= 0
-        return
-    endif
-    let totalPages = (len(s:match_list) - 1) / pageSize
-
-    if a:delta > 0
-        if s:float_index + 1 < len(s:float_items)
-            call s:floatMove(1)
-            return
-        endif
-        if s:page < totalPages
-            let s:page += 1
-        else
-            let s:page = 0
-        endif
-        let s:float_index = 0
-        call s:floatRender(s:curPage())
-        return
-    endif
-
-    if s:float_index > 0
-        call s:floatMove(-1)
-        return
-    endif
-    if s:page > 0
-        let s:page -= 1
-    else
-        let s:page = totalPages
-    endif
-    let s:float_index = max([len(s:curPage()) - 1, 0])
-    call s:floatRender(s:curPage())
+    call s:floatMoveWithPagingDeferred(a:delta)
 endfunction
 
 function! s:floatMoveWithPagingDeferred(delta)
